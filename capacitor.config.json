@@ -1,0 +1,8 @@
+{
+  "appId": "com.cityheist.openworld",
+  "appName": "City Heist 3D",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}
