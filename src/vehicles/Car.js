@@ -5,6 +5,7 @@ import { CarPhysics } from './CarPhysics.js';
 import { CarLights } from '../lighting/CarLights.js';
 import { ExhaustParticles } from './ExhaustParticles.js';
 import { SkidMarks } from './SkidMarks.js';
+import { CarDoor } from './CarDoor.js';
 
 const WHEEL_OFFSETS = [
   [-1.0, 0.36, 1.25], [1.0, 0.36, 1.25],
@@ -27,6 +28,9 @@ export class Car {
     this.lights = new CarLights(this.group);
     this.exhaust = new ExhaustParticles(this.group);
     this.skidMarks = new SkidMarks();
+
+    this.driverDoor = new CarDoor(color, 1);
+    this.driverDoor.attachTo(this.group);
 
     this.physics = new CarPhysics();
     this.group.position.set(x, 0.3, z);

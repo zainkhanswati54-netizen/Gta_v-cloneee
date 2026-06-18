@@ -1,11 +1,12 @@
 export const SETTINGS = {
   world: {
-    groundSize: 500,
-    fogNear: 50,
-    fogFar: 220,
+    groundSize: 900,
+    fogNear: 60,
+    fogFar: 280,
     blockSize: 40,
-    blocksPerSide: 6
+    blocksPerSide: 10
   },
+
   player: {
     walkSpeed: 0.09,
     runSpeed: 0.16,

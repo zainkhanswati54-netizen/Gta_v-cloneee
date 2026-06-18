@@ -26,10 +26,16 @@ export class CityBuilder {
     this.streetLamps = [];
     this.trafficLights = [];
     this.windowGrid = new WindowGrid();
+    this.roadsX = [];
+    this.roadsZ = [];
+    this.cityBlocks = [];
   }
 
   build() {
     const layout = generateCityLayout();
+    this.roadsX = layout.roadsX;
+    this.roadsZ = layout.roadsZ;
+    this.cityBlocks = layout.blocks;
 
     this.scene.add(createGround());
     this.scene.add(createSkybox());
@@ -116,7 +122,7 @@ export class CityBuilder {
     this.scene.add(TrafficSign.stopSign(layout.half - 6, layout.half - 6));
     this.scene.add(TrafficSign.speedLimit(-layout.half + 6, -layout.half + 6, 30));
 
-    return { half: layout.half };
+    return { half: layout.half, roadsX: layout.roadsX, roadsZ: layout.roadsZ, blocks: layout.blocks };
   }
 
   update(dt, isNight) {

@@ -4,6 +4,8 @@ import { Clock } from './core/Clock.js';
 import { InputManager } from './core/InputManager.js';
 import { SceneManager } from './core/SceneManager.js';
 import { GameState } from './core/GameState.js';
+import { PerformanceManager } from './core/PerformanceManager.js';
+import { isLikelyMobile } from './core/PlatformDetect.js';
 
 import { createSunLight } from './lighting/SunLight.js';
 import { createAmbientLights } from './lighting/AmbientLight.js';
@@ -11,6 +13,9 @@ import { DayNightCycle } from './lighting/DayNightCycle.js';
 
 import { CityBuilder } from './world/CityBuilder.js';
 import { CarFactory } from './vehicles/CarFactory.js';
+import { TrafficCarFactory } from './vehicles/TrafficCarFactory.js';
+import { VehicleEntryAnimation } from './vehicles/VehicleEntryAnimation.js';
+
 import { PlayerCharacter } from './player/PlayerCharacter.js';
 import { PlayerAnimator } from './player/PlayerAnimator.js';
 import { PlayerController } from './player/PlayerController.js';
@@ -19,24 +24,32 @@ import { EnterExitVehicle } from './player/EnterExitVehicle.js';
 import { PlayerStats } from './player/PlayerStats.js';
 import { FootstepDust } from './player/FootstepDust.js';
 
-import { Pistol } from './weapons/Pistol.js';
 import { Bullet } from './weapons/Bullet.js';
 import { MuzzleFlash } from './weapons/MuzzleFlash.js';
 import { BulletImpactParticles } from './weapons/BulletImpactParticles.js';
 import { WeaponPickup } from './weapons/WeaponPickup.js';
+import { WeaponRegistry } from './weapons/WeaponRegistry.js';
+import { WeaponSelector } from './weapons/WeaponSelector.js';
 
 import { NPCSpawner } from './npc/NPCSpawner.js';
 import { NPCHealthBar } from './npc/NPCHealthBar.js';
+import { CrowdSpawner } from './npc/CrowdSpawner.js';
 
 import { HUD } from './ui/HUD.js';
+import { WeaponSelectorUI } from './ui/WeaponSelectorUI.js';
+import { TouchControls } from './ui/TouchControls.js';
+import { MobileLayout } from './ui/MobileLayout.js';
+import { PauseMenu } from './ui/PauseMenu.js';
+import { ButtonFix } from './ui/ButtonFix.js';
 
 import { AudioManager } from './audio/AudioManager.js';
-import { EngineSound } from './audio/EngineSound.js';
-import { GunshotSound } from './audio/GunshotSound.js';
-import { AmbientCitySound } from './audio/AmbientCitySound.js';
+import { ProceduralEngineLayer } from './audio/ProceduralEngineLayer.js';
+import { WeaponSoundKit } from './audio/WeaponSoundKit.js';
+import { AmbientNatureSound } from './audio/AmbientNatureSound.js';
 
 import { PICKUP_SPAWNS } from './config/spawnTables.js';
 import { distance2D } from './utils/MathUtils.js';
+import { TweenManager } from './utils/Tween.js';
 
 const canvas = document.getElementById('game-canvas');
 const hudRoot = document.getElementById('hud-root');
@@ -46,6 +59,9 @@ const clock = new Clock();
 const input = new InputManager(canvas);
 const sceneManager = new SceneManager(engine.scene);
 const gameState = new GameState();
+const perf = new PerformanceManager(engine.renderer);
+const mobile = isLikelyMobile();
+const tweenManager = new TweenManager();
 
 const sun = createSunLight();
 const { hemi, ambient } = createAmbientLights();
@@ -56,6 +72,8 @@ const city = new CityBuilder(engine.scene);
 const { half: worldHalf } = city.build();
 
 const cars = CarFactory.spawnAll(engine.scene);
+const trafficCars = TrafficCarFactory.spawnAll(engine.scene, city.roadsX || [], city.roadsZ || [], worldHalf);
+const vehicleEntryAnim = new VehicleEntryAnimation(tweenManager);
 
 const player = new PlayerCharacter();
 engine.scene.add(player.group);
@@ -66,24 +84,41 @@ const enterExit = new EnterExitVehicle(player.group, cars);
 const playerStats = new PlayerStats(gameState);
 const footstepDust = new FootstepDust();
 
-const pistol = new Pistol();
+const weaponRegistry = new WeaponRegistry();
+const weaponSelector = new WeaponSelector(weaponRegistry);
 const muzzleFlash = new MuzzleFlash();
 const impactParticles = new BulletImpactParticles();
 const bullets = [];
 
 const police = NPCSpawner.spawnPolice(engine.scene);
 const pedestrians = NPCSpawner.spawnPedestrians(engine.scene);
+const crowd = CrowdSpawner.spawnAcrossBlocks(engine.scene, city.cityBlocks || [], 0.35, 2);
 const policeHealthBars = police.map(p => new NPCHealthBar(p.group));
 
 const pickups = PICKUP_SPAWNS.map(p => new WeaponPickup(p.x, p.z));
 pickups.forEach(p => engine.scene.add(p.mesh));
 
 const hud = new HUD(hudRoot, gameState);
+hud.ammoCounter.set(weaponRegistry.get('pistol').ammo);
+
+const weaponSelectorUI = new WeaponSelectorUI(hudRoot, id => {
+  weaponSelector.selectById(id);
+  refreshAmmoDisplay();
+});
+weaponSelectorUI.render(weaponRegistry.list(), weaponSelector.activeIndex);
+
+const pauseMenu = new PauseMenu(hudRoot, () => {
+  canvas.requestPointerLock();
+});
+const buttonFix = new ButtonFix(pauseMenu, input);
+
+MobileLayout.applyIfNeeded(hudRoot, mobile || MobileLayout.isSmallScreen());
+const touchControls = mobile ? new TouchControls(hudRoot) : null;
 
 const audio = new AudioManager();
-const engineSound = new EngineSound(audio);
-const gunshotSound = new GunshotSound(audio);
-const ambientSound = new AmbientCitySound(audio);
+const engineSound = new ProceduralEngineLayer(audio);
+const weaponSoundKit = new WeaponSoundKit(audio);
+const ambientSound = new AmbientNatureSound(audio);
 
 let audioStarted = false;
 canvas.addEventListener('click', () => {
@@ -95,14 +130,23 @@ canvas.addEventListener('click', () => {
   audio.resume();
 });
 
+function refreshAmmoDisplay() {
+  const active = weaponSelector.active;
+  hud.ammoCounter.set(active.ammo);
+  weaponSelectorUI.render(weaponRegistry.list(), weaponSelector.activeIndex);
+}
+
 function buildingCollision(x, z, radius) {
   return city.checkCollision(x, z, radius);
 }
 
 function fireWeapon() {
-  if (!pistol.canFire()) return;
-  if (!gameState.useAmmo()) return;
-  pistol.triggerCooldown();
+  const active = weaponSelector.active;
+  if (!active.instance.canFire()) return;
+  if (active.ammo <= 0) return;
+  active.instance.triggerCooldown();
+  active.ammo--;
+  hud.ammoCounter.set(active.ammo);
 
   const dir = new THREE.Vector3();
   engine.camera.getWorldDirection(dir);
@@ -110,21 +154,45 @@ function fireWeapon() {
   const origin = originGroup.position.clone();
   origin.y += 1.2;
 
-  bullets.push(Bullet.spawn(engine.scene, origin, dir));
+  const pelletCount = active.def.pellets || 1;
+  for (let i = 0; i < pelletCount; i++) {
+    const spread = active.def.spread || 0;
+    const spreadDir = dir.clone();
+    spreadDir.x += (Math.random() - 0.5) * spread;
+    spreadDir.y += (Math.random() - 0.5) * spread * 0.5;
+    spreadDir.z += (Math.random() - 0.5) * spread;
+    spreadDir.normalize();
+    bullets.push(Bullet.spawn(engine.scene, origin, spreadDir));
+  }
+
   muzzleFlash.spawn(engine.scene, origin.clone().addScaledVector(dir, 0.6));
-  if (audioStarted) gunshotSound.play();
+  if (audioStarted) weaponSoundKit.play(active.def.soundType);
   gameState.addScore(5);
 }
 
-input.canvas = canvas;
+let vehicleTransitionInProgress = false;
 
 function handleEnterExit() {
-  const result = enterExit.tryToggle();
-  hud.setMode(enterExit.inCar);
+  if (vehicleTransitionInProgress) return;
   if (enterExit.inCar) {
-    engineSound.start();
+    vehicleTransitionInProgress = true;
+    const car = enterExit.currentCar;
+    vehicleEntryAnim.playExit(car.driverDoor, () => {
+      enterExit.tryToggle();
+      hud.setMode(false);
+      engineSound.stop();
+      vehicleTransitionInProgress = false;
+    });
   } else {
-    engineSound.stop();
+    const nearCar = enterExit.nearestCar();
+    if (!nearCar) return;
+    vehicleTransitionInProgress = true;
+    vehicleEntryAnim.playEnter(nearCar.driverDoor, () => {
+      enterExit.tryToggle();
+      hud.setMode(true);
+      engineSound.start();
+      vehicleTransitionInProgress = false;
+    });
   }
 }
 
@@ -138,7 +206,7 @@ function updateBullets(dt) {
       if (!officer.alive) continue;
       const d = distance2D(b.mesh.position.x, b.mesh.position.z, officer.group.position.x, officer.group.position.z);
       if (d < 0.9) {
-        officer.takeDamage(pistol.damage);
+        officer.takeDamage(weaponSelector.active.instance.damage);
         impactParticles.spawn(engine.scene, b.mesh.position.clone());
         gameState.addScore(50);
         hit = true;
@@ -169,15 +237,51 @@ function updatePickups() {
     p.update(clock.delta);
     if (p.checkCollect(pos.x, pos.z)) {
       engine.scene.remove(p.mesh);
-      gameState.addAmmo(15);
+      weaponRegistry.addAmmo(weaponSelector.active.id, weaponSelector.active.def.ammoPerPickup);
+      refreshAmmoDisplay();
       gameState.addScore(25);
     }
   });
 }
 
+function applyTouchInput(dt) {
+  if (!touchControls) return;
+  const { state } = touchControls;
+  const flags = touchControls.consumePressFlags();
+  const look = touchControls.consumeLook();
+
+  if (!enterExit.inCar) {
+    playerCamera.yaw -= look.dx * 0.004;
+    playerCamera.pitch = THREE.MathUtils.clamp(playerCamera.pitch - look.dy * 0.004, -0.45, 0.45);
+  }
+
+  input.setTouchOverride({
+    forward: state.moveY < -0.2,
+    backward: state.moveY > 0.2,
+    left: state.moveX < -0.2,
+    right: state.moveX > 0.2,
+    fire: state.firing
+  });
+
+  if (flags.enterExitPressed) handleEnterExit();
+  if (flags.weaponCyclePressed) {
+    weaponSelector.next();
+    refreshAmmoDisplay();
+  }
+}
+
 function animate() {
   requestAnimationFrame(animate);
   const dt = clock.tick();
+
+  if (buttonFix.isPaused()) {
+    engine.render();
+    return;
+  }
+
+  perf.trackFrame(dt);
+  applyTouchInput(dt);
+  tweenManager.update(dt);
 
   dayNight.update(dt);
   city.update(dt, dayNight.isNight);
@@ -186,6 +290,17 @@ function animate() {
     if (car.inUse) return;
     car.lights.setNight(dayNight.isNight);
   });
+
+  trafficCars.forEach(tc => {
+    tc.updateTraffic(dt);
+    tc.lights.setNight(dayNight.isNight);
+  });
+
+  const viewerPos = enterExit.inCar ? enterExit.currentCar.group.position : player.group.position;
+  perf.applyLOD(
+    city.buildings.map(b => ({ mesh: b.mesh, x: b.x, z: b.z })),
+    viewerPos.x, viewerPos.z
+  );
 
   if (enterExit.inCar) {
     const controls = {
@@ -201,7 +316,7 @@ function animate() {
     playerCamera.follow(enterExit.currentCar.group.position);
     engineSound.update(enterExit.currentCar.physics.speed / 0.85);
   } else {
-    playerCamera.yaw = playerCamera.updateLook() ?? playerCamera.yaw;
+    playerCamera.updateLook();
     playerController.yaw = playerCamera.yaw;
     const { moved, running } = playerController.update(dt, buildingCollision, worldHalf);
     playerAnimator.update(dt, moved, running);
@@ -224,6 +339,7 @@ function animate() {
   cleanupDeadPolice();
 
   pedestrians.forEach(ped => ped.update(dt));
+  crowd.forEach(ped => ped.update(dt));
 
   updateBullets(dt);
   muzzleFlash.update(dt, engine.scene);

@@ -8,6 +8,7 @@ export class InputManager {
     this.mouseDY = 0;
     this.locked = false;
     this._pressedOnce = new Set();
+    this.touchOverride = {};
 
     canvas.addEventListener('click', () => canvas.requestPointerLock());
     document.addEventListener('pointerlockchange', () => {
@@ -27,7 +28,12 @@ export class InputManager {
     });
   }
 
+  setTouchOverride(overrides) {
+    this.touchOverride = overrides || {};
+  }
+
   isDown(bindName) {
+    if (this.touchOverride[bindName]) return true;
     for (const code of this.keys) {
       if (matchesBind(code, bindName)) return true;
     }
