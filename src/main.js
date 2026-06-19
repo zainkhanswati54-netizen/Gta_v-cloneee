@@ -38,6 +38,7 @@ import { CrowdSpawner } from './npc/CrowdSpawner.js';
 import { HUD } from './ui/HUD.js';
 import { WeaponSelectorUI } from './ui/WeaponSelectorUI.js';
 import { TouchControls } from './ui/TouchControls.js';
+import { DPadControls } from './ui/DPadControls.js';
 import { MobileLayout } from './ui/MobileLayout.js';
 import { PauseMenu } from './ui/PauseMenu.js';
 import { ButtonFix } from './ui/ButtonFix.js';
@@ -47,7 +48,8 @@ import { ProceduralEngineLayer } from './audio/ProceduralEngineLayer.js';
 import { WeaponSoundKit } from './audio/WeaponSoundKit.js';
 import { AmbientNatureSound } from './audio/AmbientNatureSound.js';
 
-import { PICKUP_SPAWNS } from './config/spawnTables.js';
+import { PICKUP_SPAWNS, STREET_PROP_SPAWNS } from './config/spawnTables.js';
+import { DISTRICT_LAYOUT } from './config/districtConfig.js';
 import { distance2D } from './utils/MathUtils.js';
 import { TweenManager } from './utils/Tween.js';
 
@@ -72,11 +74,14 @@ const city = new CityBuilder(engine.scene);
 const { half: worldHalf } = city.build();
 
 const cars = CarFactory.spawnAll(engine.scene);
-const trafficCars = TrafficCarFactory.spawnAll(engine.scene, city.roadsX || [], city.roadsZ || [], worldHalf);
+const trafficCars = TrafficCarFactory.spawnAll(engine.scene, city.roadsX, city.roadsZ, worldHalf);
 const vehicleEntryAnim = new VehicleEntryAnimation(tweenManager);
 
 const player = new PlayerCharacter();
 engine.scene.add(player.group);
+// Spawn the player inside the city district, near the origin, regardless of district layout changes.
+player.group.position.set(4, 0, 4);
+
 const playerAnimator = new PlayerAnimator(player.parts);
 const playerController = new PlayerController(player.group, input);
 const playerCamera = new PlayerCamera(engine.camera, input);
@@ -91,8 +96,13 @@ const impactParticles = new BulletImpactParticles();
 const bullets = [];
 
 const police = NPCSpawner.spawnPolice(engine.scene);
-const pedestrians = NPCSpawner.spawnPedestrians(engine.scene);
-const crowd = CrowdSpawner.spawnAcrossBlocks(engine.scene, city.cityBlocks || [], 0.35, 2);
+const { pedestrians, talkingPairs } = CrowdSpawner.spawnAcrossBlocks(engine.scene, city.cityBlocks, 0.38, 2);
+
+const benchPositions = STREET_PROP_SPAWNS.filter(p => p.type === 'bench');
+const benchSitters = CrowdSpawner.spawnOnBenches(engine.scene, benchPositions);
+
+const beachCrowd = CrowdSpawner.spawnBeachCrowd(engine.scene, DISTRICT_LAYOUT.beachBounds, 14);
+
 const policeHealthBars = police.map(p => new NPCHealthBar(p.group));
 
 const pickups = PICKUP_SPAWNS.map(p => new WeaponPickup(p.x, p.z));
@@ -114,6 +124,7 @@ const buttonFix = new ButtonFix(pauseMenu, input);
 
 MobileLayout.applyIfNeeded(hudRoot, mobile || MobileLayout.isSmallScreen());
 const touchControls = mobile ? new TouchControls(hudRoot) : null;
+const dpadControls = mobile ? new DPadControls(hudRoot) : null;
 
 const audio = new AudioManager();
 const engineSound = new ProceduralEngineLayer(audio);
@@ -181,6 +192,8 @@ function handleEnterExit() {
       enterExit.tryToggle();
       hud.setMode(false);
       engineSound.stop();
+      if (dpadControls) dpadControls.hide();
+      if (touchControls) touchControls.showOnFootControls();
       vehicleTransitionInProgress = false;
     });
   } else {
@@ -191,6 +204,8 @@ function handleEnterExit() {
       enterExit.tryToggle();
       hud.setMode(true);
       engineSound.start();
+      if (dpadControls) dpadControls.show();
+      if (touchControls) touchControls.hideOnFootControls();
       vehicleTransitionInProgress = false;
     });
   }
@@ -244,16 +259,23 @@ function updatePickups() {
   });
 }
 
-function applyTouchInput(dt) {
+function applyTouchButtonFlags() {
+  if (!touchControls) return;
+  const flags = touchControls.consumePressFlags();
+  if (flags.enterExitPressed) handleEnterExit();
+  if (flags.weaponCyclePressed) {
+    weaponSelector.next();
+    refreshAmmoDisplay();
+  }
+}
+
+function applyTouchMovementOnFoot(dt) {
   if (!touchControls) return;
   const { state } = touchControls;
-  const flags = touchControls.consumePressFlags();
   const look = touchControls.consumeLook();
 
-  if (!enterExit.inCar) {
-    playerCamera.yaw -= look.dx * 0.004;
-    playerCamera.pitch = THREE.MathUtils.clamp(playerCamera.pitch - look.dy * 0.004, -0.45, 0.45);
-  }
+  playerCamera.yaw -= look.dx * 0.004;
+  playerCamera.pitch = THREE.MathUtils.clamp(playerCamera.pitch - look.dy * 0.004, -0.45, 0.45);
 
   input.setTouchOverride({
     forward: state.moveY < -0.2,
@@ -262,12 +284,26 @@ function applyTouchInput(dt) {
     right: state.moveX > 0.2,
     fire: state.firing
   });
+}
 
-  if (flags.enterExitPressed) handleEnterExit();
-  if (flags.weaponCyclePressed) {
-    weaponSelector.next();
-    refreshAmmoDisplay();
+function getCarControls() {
+  if (dpadControls && enterExit.inCar) {
+    const d = dpadControls.consume();
+    return {
+      forward: input.isDown('forward') || d.accel,
+      backward: input.isDown('backward') || d.brake,
+      left: input.isDown('left') || d.left,
+      right: input.isDown('right') || d.right,
+      handbrake: input.isDown('handbrake') || d.handbrake
+    };
   }
+  return {
+    forward: input.isDown('forward'),
+    backward: input.isDown('backward'),
+    left: input.isDown('left'),
+    right: input.isDown('right'),
+    handbrake: input.isDown('handbrake')
+  };
 }
 
 function animate() {
@@ -280,7 +316,8 @@ function animate() {
   }
 
   perf.trackFrame(dt);
-  applyTouchInput(dt);
+  applyTouchButtonFlags();
+  if (!enterExit.inCar) applyTouchMovementOnFoot(dt);
   tweenManager.update(dt);
 
   dayNight.update(dt);
@@ -303,18 +340,12 @@ function animate() {
   );
 
   if (enterExit.inCar) {
-    const controls = {
-      forward: input.isDown('forward'),
-      backward: input.isDown('backward'),
-      left: input.isDown('left'),
-      right: input.isDown('right')
-    };
+    const controls = getCarControls();
     enterExit.currentCar.update(controls, buildingCollision, dt, engine.scene);
     enterExit.currentCar.lights.setNight(dayNight.isNight);
     playerCamera.yaw = enterExit.currentCar.physics.angle;
-    playerCamera.updateLook();
     playerCamera.follow(enterExit.currentCar.group.position);
-    engineSound.update(enterExit.currentCar.physics.speed / 0.85);
+    engineSound.update(enterExit.currentCar.physics.speed / 0.95);
   } else {
     playerCamera.updateLook();
     playerController.yaw = playerCamera.yaw;
@@ -339,7 +370,9 @@ function animate() {
   cleanupDeadPolice();
 
   pedestrians.forEach(ped => ped.update(dt));
-  crowd.forEach(ped => ped.update(dt));
+  talkingPairs.forEach(pair => pair.update(dt));
+  benchSitters.forEach(s => s.update(dt));
+  beachCrowd.forEach(b => b.update(dt));
 
   updateBullets(dt);
   muzzleFlash.update(dt, engine.scene);
@@ -347,7 +380,12 @@ function animate() {
   updatePickups();
 
   if (input.wasPressed('enterExitVehicle')) handleEnterExit();
-  if (input.isDown('fire')) fireWeapon();
+  if (input.wasPressed('toggleCameraView')) playerCamera.toggleView();
+  if (input.wasPressed('cycleWeapon')) {
+    weaponSelector.next();
+    refreshAmmoDisplay();
+  }
+  if (input.isDown('fire') && !enterExit.inCar) fireWeapon();
 
   gameState.decayWanted(0.002 * dt);
 

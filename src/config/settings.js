@@ -1,10 +1,9 @@
 export const SETTINGS = {
   world: {
-    groundSize: 900,
-    fogNear: 60,
-    fogFar: 280,
+    fogNear: 70,
+    fogFar: 320,
     blockSize: 40,
-    blocksPerSide: 10
+    worldHalf: 400
   },
 
   player: {
@@ -15,11 +14,14 @@ export const SETTINGS = {
     collisionRadius: 0.4
   },
   car: {
-    accel: 0.045,
-    reverseAccel: 0.028,
-    friction: 0.9,
-    steerRate: 0.045,
-    maxSpeed: 0.85,
+    accel: 0.05,
+    reverseAccel: 0.03,
+    friction: 0.93,
+    brakeFriction: 0.82,
+    handbrakeFriction: 0.7,
+    steerRate: 0.04,
+    minSteerSpeed: 0.05,
+    maxSpeed: 0.95,
     collisionRadius: 1.6
   },
   weapons: {
@@ -35,13 +37,15 @@ export const SETTINGS = {
     attackRadius: 16,
     fireCooldown: 85,
     chaseSpeed: 0.05,
-    maxHealth: 3
+    maxHealth: 3,
+    wanderSpeed: 0.045
   },
   camera: {
-    distance: 9,
-    height: 4.2,
-    lerp: 0.12,
-    fov: 68
+    views: {
+      close: { distance: 6.5, height: 3.0, fov: 70 },
+      far: { distance: 13, height: 6.0, fov: 62 }
+    },
+    lerp: 0.12
   },
   dayNight: {
     cycleSpeed: 0.0015

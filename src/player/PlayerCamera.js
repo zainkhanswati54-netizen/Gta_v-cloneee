@@ -7,6 +7,15 @@ export class PlayerCamera {
     this.input = input;
     this.yaw = 0;
     this.pitch = 0;
+    this.viewName = 'far';
+  }
+
+  toggleView() {
+    this.viewName = this.viewName === 'far' ? 'close' : 'far';
+    const view = SETTINGS.camera.views[this.viewName];
+    this.camera.fov = view.fov;
+    this.camera.updateProjectionMatrix();
+    return this.viewName;
   }
 
   updateLook() {
@@ -17,14 +26,14 @@ export class PlayerCamera {
   }
 
   follow(target) {
-    const cfg = SETTINGS.camera;
+    const view = SETTINGS.camera.views[this.viewName];
     const offset = new THREE.Vector3(
-      -Math.sin(this.yaw) * Math.cos(this.pitch) * cfg.distance,
-      cfg.height + Math.sin(this.pitch) * 5,
-      -Math.cos(this.yaw) * Math.cos(this.pitch) * cfg.distance
+      -Math.sin(this.yaw) * Math.cos(this.pitch) * view.distance,
+      view.height + Math.sin(this.pitch) * 5,
+      -Math.cos(this.yaw) * Math.cos(this.pitch) * view.distance
     );
     const desired = target.clone().add(offset);
-    this.camera.position.lerp(desired, cfg.lerp);
+    this.camera.position.lerp(desired, SETTINGS.camera.lerp);
     this.camera.lookAt(target.clone().add(new THREE.Vector3(0, 1.4, 0)));
   }
 }

@@ -18,7 +18,7 @@ export class Engine {
     this.scene.background = new THREE.Color(PALETTE.sky.day);
     this.scene.fog = new THREE.Fog(PALETTE.fogDay, SETTINGS.world.fogNear, SETTINGS.world.fogFar);
 
-    this.camera = new THREE.PerspectiveCamera(SETTINGS.camera.fov, 1, 0.1, 600);
+    this.camera = new THREE.PerspectiveCamera(SETTINGS.camera.views.far.fov, 1, 0.1, 700);
     this.camera.position.set(0, 8, 14);
 
     this._resizeListeners = [];

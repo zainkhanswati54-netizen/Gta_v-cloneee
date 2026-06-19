@@ -10,9 +10,30 @@ export class TouchControls {
       weaponCyclePressed: false
     };
 
-    this._buildJoystick(root);
-    this._buildButtons(root);
+    this.onFootContainer = document.createElement('div');
+    this.onFootContainer.style.cssText = 'position:absolute;inset:0;pointer-events:none;';
+    root.appendChild(this.onFootContainer);
+
+    // Joystick and fire button are only relevant on foot, so they live in the hideable container.
+    this._buildJoystick(this.onFootContainer);
+    this._buildFireButton(this.onFootContainer);
+
+    // Enter/exit and weapon-cycle buttons must remain usable in both on-foot and driving
+    // states (you need "E" to exit a car!), so they are NOT inside onFootContainer.
+    this._buildAlwaysOnButtons(root);
+
     this._buildLookZone(root);
+  }
+
+  showOnFootControls() {
+    this.onFootContainer.style.display = 'block';
+  }
+
+  hideOnFootControls() {
+    this.onFootContainer.style.display = 'none';
+    this.state.moveX = 0;
+    this.state.moveY = 0;
+    this.state.firing = false;
   }
 
   _buildJoystick(root) {
@@ -92,24 +113,37 @@ export class TouchControls {
     zone.style.zIndex = '-1';
   }
 
-  _buildButtons(root) {
-    const wrap = document.createElement('div');
-    wrap.style.cssText = 'position:absolute;bottom:24px;right:24px;display:flex;flex-direction:column;gap:10px;align-items:center;pointer-events:auto;';
-    root.appendChild(wrap);
-
+  _buildFireButton(root) {
     const fireBtn = this._makeButton('FIRE', '#d33');
+    fireBtn.style.position = 'absolute';
+    fireBtn.style.bottom = '24px';
+    fireBtn.style.right = '24px';
     fireBtn.addEventListener('touchstart', e => { this.state.firing = true; e.preventDefault(); }, { passive: false });
     fireBtn.addEventListener('touchend', () => { this.state.firing = false; });
     fireBtn.addEventListener('mousedown', () => { this.state.firing = true; });
     fireBtn.addEventListener('mouseup', () => { this.state.firing = false; });
+    root.appendChild(fireBtn);
+  }
+
+  _buildAlwaysOnButtons(root) {
+    // Positioned top-right, clear of both the on-foot fire button (bottom-right) and the
+    // D-pad's accelerate/brake buttons (also bottom-right while driving), so these never overlap.
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:absolute;top:50px;right:14px;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:auto;';
+    root.appendChild(wrap);
 
     const enterBtn = this._makeButton('E', '#0aa');
+    enterBtn.style.width = '46px';
+    enterBtn.style.height = '46px';
+    enterBtn.style.fontSize = '12px';
     enterBtn.addEventListener('click', () => { this.state.enterExitPressed = true; });
 
     const weaponBtn = this._makeButton('W+', '#a80');
+    weaponBtn.style.width = '46px';
+    weaponBtn.style.height = '46px';
+    weaponBtn.style.fontSize = '12px';
     weaponBtn.addEventListener('click', () => { this.state.weaponCyclePressed = true; });
 
-    wrap.appendChild(fireBtn);
     wrap.appendChild(enterBtn);
     wrap.appendChild(weaponBtn);
   }

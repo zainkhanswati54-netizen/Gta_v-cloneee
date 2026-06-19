@@ -1,8 +1,19 @@
 # Open World 3D — City Heist
 
-A GTA-inspired open world 3D browser game built with Three.js, organized into ~108 small modular files (core engine, world, vehicles, player, weapons, NPCs, lighting, UI, audio, config, and utils).
+A GTA-inspired open world 3D browser game built with Three.js, organized into ~122 small modular files (core engine, world, vehicles, player, weapons, NPCs, lighting, UI, audio, config, and utils).
 
-## What's new in this update
+## What's new in this update (4 districts + NPC activity + controls)
+- **Four districts**: the map is now divided into quadrants — a large **city** (most buildings, neon signage at night), a **beach** (sand, animated ocean, palm trees, umbrellas/loungers, beach NPCs), **mountains** (procedural peaks with snow caps, pine forest), and a smaller **suburbs** transition district. Roads connect all four; dense traffic is concentrated in the city/suburb/beach side, since roads cutting through solid mountain terrain would look broken.
+- **NPCs that actually do things**: pedestrians now cycle through walk/idle states with visible movement speed (previously they moved so slowly it looked like they were doing nothing). Added talking NPC pairs (two NPCs facing each other with conversation gestures), NPCs sitting on benches, and beach-specific NPCs that lounge or stroll.
+- **Two camera views**: press `C` (or use the in-game toggle) to switch between a close chase camera and a far chase camera.
+- **Better car controls**: a real handbrake (with a slight arcade drift when used at speed while turning), corrected steering direction when reversing (previously turning left while reversing span the car the wrong way), and proper braking feel when you let off the accelerator instead of relying only on ambient friction.
+- **Touch D-pad for driving**: on mobile, entering a vehicle now swaps the on-foot joystick for dedicated steer-left/steer-right/accelerate/brake/handbrake buttons. Exiting the vehicle swaps back.
+- **Visual fixes**: health is now shown as a segmented status bar with a character icon instead of a thin progress strip; removed a redundant always-hidden skybox sphere that was silently costing render performance every frame for no visible benefit.
+
+## Honest note on "maximum graphics"
+This project builds all visuals procedurally in Three.js using basic primitives (boxes, cylinders, cones) and standard/shader materials — there's a real ceiling to how realistic this can look, well below photoreal, licensed, professionally-modeled reference art. What was improved here: lighting (ACES filmic tone mapping, day/night-aware neon signage, animated water shader), material variety per district, and removing wasted render work. What wasn't and can't reasonably be added without a different toolchain: photorealistic textures, sculpted/high-poly character or vehicle models, or licensed assets.
+
+
 - **Bigger map**: city grid expanded from 6×6 to 10×10 blocks
 - **Traffic**: AI-driven cars that follow lane routes and turn around at the edges of the map
 - **Crowds**: many more pedestrians distributed across city blocks (in addition to the original fixed pedestrian spawns)
@@ -83,15 +94,24 @@ Once the `android/` folder is committed and pushed, the workflow will run automa
 - Mouse — look around (click the canvas once to lock the pointer)
 - `Shift` — run (on foot)
 - `E` — enter / exit nearest vehicle (plays door animation)
-- `Space` — fire weapon / handbrake in vehicle
+- `Space` — fire weapon (on foot) / handbrake (in vehicle)
+- `C` — toggle close/far camera view
+- `Q` — cycle equipped weapon
 - `Esc` — pause / resume
 
-**Mobile / touch**
-- Virtual joystick (bottom-left) — move or drive
+**Mobile / touch (on foot)**
+- Virtual joystick (bottom-left) — move
 - Drag anywhere on screen — look around
 - Red button — fire
 - Teal "E" button — enter/exit vehicle
 - Orange "W+" button — cycle weapon
+
+**Mobile / touch (driving)**
+- ◀ / ▶ buttons (bottom-left) — steer
+- ▲ button (bottom-right, green) — accelerate
+- ▼ button (bottom-right, red) — brake/reverse
+- HB button — handbrake
+- Tap teal "E" equivalent (enter/exit button) to exit the vehicle — the on-foot joystick automatically swaps for the D-pad while driving, and back again on exit
 
 ## Project structure
 
