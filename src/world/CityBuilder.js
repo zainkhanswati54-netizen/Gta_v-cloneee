@@ -99,7 +99,7 @@ export class CityBuilder {
       this.windowGrid.applyToFace(building.group, d, h, w, w / 2 + 0.02, 'x');
       this.nightLighting.attachToBuilding(building.group, w, h, d);
       this.scene.add(building.group);
-      this.buildings.push({ mesh: building.group, x: block.x, z: block.z, w, d });
+      this.buildings.push({ mesh: building.group, x: block.x, z: block.z, w, d, h });
 
       if (chance(0.4)) {
         const tree = new Tree(block.x + w / 2 + 2, block.z - d / 2 - 2);

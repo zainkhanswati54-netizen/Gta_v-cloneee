@@ -38,7 +38,7 @@ export class Car {
   }
 
   update(input, collisionCheck, dt, sceneForSkid) {
-    const result = this.physics.step(input, collisionCheck, this.group.position.x, this.group.position.z);
+    const result = this.physics.step(input, collisionCheck, this.group.position.x, this.group.position.z, dt);
     this.group.position.x = result.x;
     this.group.position.z = result.z;
     this.group.rotation.y = this.physics.angle;

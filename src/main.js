@@ -24,16 +24,16 @@ import { EnterExitVehicle } from './player/EnterExitVehicle.js';
 import { PlayerStats } from './player/PlayerStats.js';
 import { FootstepDust } from './player/FootstepDust.js';
 
-import { Bullet } from './weapons/Bullet.js';
+import { BulletPool } from './weapons/BulletPool.js';
 import { MuzzleFlash } from './weapons/MuzzleFlash.js';
 import { BulletImpactParticles } from './weapons/BulletImpactParticles.js';
 import { WeaponPickup } from './weapons/WeaponPickup.js';
 import { WeaponRegistry } from './weapons/WeaponRegistry.js';
 import { WeaponSelector } from './weapons/WeaponSelector.js';
 
-import { NPCSpawner } from './npc/NPCSpawner.js';
 import { NPCHealthBar } from './npc/NPCHealthBar.js';
 import { CrowdSpawner } from './npc/CrowdSpawner.js';
+import { PoliceNPCPool } from './npc/PoliceNPCPool.js';
 
 import { HUD } from './ui/HUD.js';
 import { WeaponSelectorUI } from './ui/WeaponSelectorUI.js';
@@ -48,7 +48,7 @@ import { ProceduralEngineLayer } from './audio/ProceduralEngineLayer.js';
 import { WeaponSoundKit } from './audio/WeaponSoundKit.js';
 import { AmbientNatureSound } from './audio/AmbientNatureSound.js';
 
-import { PICKUP_SPAWNS, STREET_PROP_SPAWNS } from './config/spawnTables.js';
+import { PICKUP_SPAWNS, STREET_PROP_SPAWNS, POLICE_SPAWNS } from './config/spawnTables.js';
 import { DISTRICT_LAYOUT } from './config/districtConfig.js';
 import { distance2D } from './utils/MathUtils.js';
 import { TweenManager } from './utils/Tween.js';
@@ -61,7 +61,7 @@ const clock = new Clock();
 const input = new InputManager(canvas);
 const sceneManager = new SceneManager(engine.scene);
 const gameState = new GameState();
-const perf = new PerformanceManager(engine.renderer);
+const perf = new PerformanceManager(engine.renderer, engine.camera);
 const mobile = isLikelyMobile();
 const tweenManager = new TweenManager();
 
@@ -72,6 +72,18 @@ const dayNight = new DayNightCycle(engine.scene, sun, hemi, ambient);
 
 const city = new CityBuilder(engine.scene);
 const { half: worldHalf } = city.build();
+
+// Precomputed once: avoids allocating a new array + new objects every frame for LOD/culling,
+// which was a real (if subtle) source of GC churn given hundreds of buildings.
+const buildingLODItems = city.buildings.map(b => ({
+  mesh: b.mesh,
+  x: b.x,
+  z: b.z,
+  w: b.w,
+  d: b.d,
+  height: b.h,
+  radius: Math.max(b.w, b.d) * 0.7
+}));
 
 const cars = CarFactory.spawnAll(engine.scene);
 const trafficCars = TrafficCarFactory.spawnAll(engine.scene, city.roadsX, city.roadsZ, worldHalf);
@@ -93,9 +105,10 @@ const weaponRegistry = new WeaponRegistry();
 const weaponSelector = new WeaponSelector(weaponRegistry);
 const muzzleFlash = new MuzzleFlash();
 const impactParticles = new BulletImpactParticles();
-const bullets = [];
+const bulletPool = new BulletPool(engine.scene);
 
-const police = NPCSpawner.spawnPolice(engine.scene);
+const policePool = new PoliceNPCPool(engine.scene);
+const police = POLICE_SPAWNS.map(p => policePool.spawn(p.x, p.z));
 const { pedestrians, talkingPairs } = CrowdSpawner.spawnAcrossBlocks(engine.scene, city.cityBlocks, 0.38, 2);
 
 const benchPositions = STREET_PROP_SPAWNS.filter(p => p.type === 'bench');
@@ -151,6 +164,13 @@ function buildingCollision(x, z, radius) {
   return city.checkCollision(x, z, radius);
 }
 
+// Scratch vectors reused every shot instead of allocating new THREE.Vector3 instances —
+// fireWeapon() can be called many times per second with the automatic rifle, so this matters.
+const _fireDir = new THREE.Vector3();
+const _fireOrigin = new THREE.Vector3();
+const _spreadDir = new THREE.Vector3();
+const _muzzlePos = new THREE.Vector3();
+
 function fireWeapon() {
   const active = weaponSelector.active;
   if (!active.instance.canFire()) return;
@@ -159,24 +179,24 @@ function fireWeapon() {
   active.ammo--;
   hud.ammoCounter.set(active.ammo);
 
-  const dir = new THREE.Vector3();
-  engine.camera.getWorldDirection(dir);
+  engine.camera.getWorldDirection(_fireDir);
   const originGroup = enterExit.inCar ? enterExit.currentCar.group : player.group;
-  const origin = originGroup.position.clone();
-  origin.y += 1.2;
+  _fireOrigin.copy(originGroup.position);
+  _fireOrigin.y += 1.2;
 
   const pelletCount = active.def.pellets || 1;
   for (let i = 0; i < pelletCount; i++) {
     const spread = active.def.spread || 0;
-    const spreadDir = dir.clone();
-    spreadDir.x += (Math.random() - 0.5) * spread;
-    spreadDir.y += (Math.random() - 0.5) * spread * 0.5;
-    spreadDir.z += (Math.random() - 0.5) * spread;
-    spreadDir.normalize();
-    bullets.push(Bullet.spawn(engine.scene, origin, spreadDir));
+    _spreadDir.copy(_fireDir);
+    _spreadDir.x += (Math.random() - 0.5) * spread;
+    _spreadDir.y += (Math.random() - 0.5) * spread * 0.5;
+    _spreadDir.z += (Math.random() - 0.5) * spread;
+    _spreadDir.normalize();
+    bulletPool.spawn(_fireOrigin, _spreadDir);
   }
 
-  muzzleFlash.spawn(engine.scene, origin.clone().addScaledVector(dir, 0.6));
+  _muzzlePos.copy(_fireOrigin).addScaledVector(_fireDir, 0.6);
+  muzzleFlash.spawn(engine.scene, _muzzlePos);
   if (audioStarted) weaponSoundKit.play(active.def.soundType);
   gameState.addScore(5);
 }
@@ -194,6 +214,9 @@ function handleEnterExit() {
       engineSound.stop();
       if (dpadControls) dpadControls.hide();
       if (touchControls) touchControls.showOnFootControls();
+      // Clear any touch-override state (e.g. joystick held forward) left over from
+      // driving, so the player doesn't keep walking on their own right after exiting.
+      input.setTouchOverride({});
       vehicleTransitionInProgress = false;
     });
   } else {
@@ -206,15 +229,26 @@ function handleEnterExit() {
       engineSound.start();
       if (dpadControls) dpadControls.show();
       if (touchControls) touchControls.hideOnFootControls();
+      // Same fix in the other direction: a joystick held forward at the exact moment
+      // of entering a car would otherwise leave touchOverride.forward stuck true,
+      // since applyTouchMovementOnFoot() stops running once inCar becomes true —
+      // silently accelerating the car with no actual driving input.
+      input.setTouchOverride({});
       vehicleTransitionInProgress = false;
     });
   }
 }
 
+const _impactPos = new THREE.Vector3();
+
 function updateBullets(dt) {
-  for (let i = bullets.length - 1; i >= 0; i--) {
-    const b = bullets[i];
-    const alive = Bullet.step(b, dt);
+  // Iterate backwards so that release() splicing the current index doesn't skip
+  // the next element — this avoids needing a snapshot array allocation every frame.
+  const active = bulletPool.activeBullets;
+  for (let i = active.length - 1; i >= 0; i--) {
+    const b = active[i];
+    const stillAlive = bulletPool.step(b, dt);
+    if (!stillAlive) continue; // step() already released it via life expiry
 
     let hit = false;
     for (const officer of police) {
@@ -222,24 +256,25 @@ function updateBullets(dt) {
       const d = distance2D(b.mesh.position.x, b.mesh.position.z, officer.group.position.x, officer.group.position.z);
       if (d < 0.9) {
         officer.takeDamage(weaponSelector.active.instance.damage);
-        impactParticles.spawn(engine.scene, b.mesh.position.clone());
+        _impactPos.copy(b.mesh.position);
+        impactParticles.spawn(engine.scene, _impactPos);
         gameState.addScore(50);
         hit = true;
         break;
       }
     }
 
-    if (!alive || hit) {
-      engine.scene.remove(b.mesh);
-      bullets.splice(i, 1);
-    }
+    if (hit) bulletPool.release(b);
   }
 }
 
 function cleanupDeadPolice() {
   for (let i = police.length - 1; i >= 0; i--) {
     if (!police[i].alive) {
-      engine.scene.remove(police[i].group);
+      // Returned to the pool (hidden + reset) rather than permanently destroyed —
+      // Phase 2's wanted-level system will reuse these instances for new chases
+      // instead of constructing a brand new PoliceNPC (full mesh hierarchy) each time.
+      policePool.despawn(police[i]);
       police.splice(i, 1);
       policeHealthBars.splice(i, 1);
     }
@@ -320,6 +355,11 @@ function animate() {
   if (!enterExit.inCar) applyTouchMovementOnFoot(dt);
   tweenManager.update(dt);
 
+  // Critical fix: without this, Weapon.cooldown is set by triggerCooldown() on every shot
+  // but never decremented, so canFire() would permanently return false after the very
+  // first bullet fired with any weapon for the rest of the session.
+  weaponRegistry.list().forEach(w => w.instance.update(dt));
+
   dayNight.update(dt);
   city.update(dt, dayNight.isNight);
 
@@ -334,10 +374,7 @@ function animate() {
   });
 
   const viewerPos = enterExit.inCar ? enterExit.currentCar.group.position : player.group.position;
-  perf.applyLOD(
-    city.buildings.map(b => ({ mesh: b.mesh, x: b.x, z: b.z })),
-    viewerPos.x, viewerPos.z
-  );
+  perf.applyLOD(buildingLODItems, viewerPos.x, viewerPos.z);
 
   if (enterExit.inCar) {
     const controls = getCarControls();
@@ -375,8 +412,8 @@ function animate() {
   beachCrowd.forEach(b => b.update(dt));
 
   updateBullets(dt);
-  muzzleFlash.update(dt, engine.scene);
-  impactParticles.update(dt, engine.scene);
+  muzzleFlash.update(dt);
+  impactParticles.update(dt);
   updatePickups();
 
   if (input.wasPressed('enterExitVehicle')) handleEnterExit();

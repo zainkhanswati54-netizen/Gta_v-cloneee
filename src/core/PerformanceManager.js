@@ -1,10 +1,12 @@
 import { ObjectLOD } from '../utils/ObjectLOD.js';
 import { isLikelyMobile } from './PlatformDetect.js';
+import { FrustumCuller } from './FrustumCuller.js';
 
 export class PerformanceManager {
-  constructor(renderer) {
+  constructor(renderer, camera) {
     this.renderer = renderer;
     this.lod = new ObjectLOD();
+    this.frustumCuller = camera ? new FrustumCuller(camera) : null;
     this.mobile = isLikelyMobile();
     this.frameTimes = [];
     this.qualityTier = this.mobile ? 'medium' : 'high';
@@ -39,9 +41,21 @@ export class PerformanceManager {
     }
   }
 
+  // Combines distance-based LOD/culling with real camera-frustum visibility.
+  // Distance culling catches "too far to matter"; frustum culling catches
+  // "close, but behind/beside the camera" — buildings the player walked past, for example.
   applyLOD(items, viewerX, viewerZ) {
+    if (this.frustumCuller) this.frustumCuller.updateFrustum();
+
     items.forEach(item => {
-      this.lod.apply(item.mesh, viewerX, viewerZ, item.x, item.z);
+      const distState = this.lod.apply(item.mesh, viewerX, viewerZ, item.x, item.z);
+      if (distState === 'culled') return; // already hidden by distance, skip frustum test
+
+      if (this.frustumCuller) {
+        const radius = item.radius || Math.max(item.w || 10, item.d || 10);
+        const inView = this.frustumCuller.isVisible(item.x, (item.height || 10) / 2, item.z, radius);
+        item.mesh.visible = inView;
+      }
     });
   }
 }
